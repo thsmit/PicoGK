@@ -6,7 +6,7 @@
 //
 // For more information, please visit https://picogk.org
 // 
-// PicoGK is developed and maintained by LEAP 71 - © 2023 by LEAP 71
+// PicoGK is developed and maintained by LEAP 71 - © 2023-2024 by LEAP 71
 // https://leap71.com
 //
 // Computational Engineering will profoundly change our physical world in the
@@ -85,7 +85,9 @@ namespace PicoGK
         public enum EFieldType
         {
             Unsupported = -1,
-            Voxels = 0
+            Voxels      = 0,
+            ScalarField = 1,
+            VectorField = 2
         }
 
         /// <summary>
@@ -192,6 +194,124 @@ namespace PicoGK
         }
 
         /// <summary>
+        /// Get the ScalarField at the index specified. 0 is the first field.
+        /// If the field at the specified position is incompatible with the
+        /// field type, an exception is thrown.
+        /// </summary>
+        /// <param name="nIndex">Index of the field</param>
+        /// <returns>ScalarField described by the VDB field</returns>
+        /// <exception>Throws exception if no ScalarField found at index</exception>
+        public ScalarField oGetScalarField(int nIndex)
+        {
+            if (nIndex >= nFieldCount())
+                throw new ArgumentOutOfRangeException();
+
+            IntPtr hField = _hGetScalarField(m_hThis, nIndex);
+            if (hField == IntPtr.Zero)
+                throw new Exception($"No scalar field found at index {nIndex}");
+
+            return new ScalarField(hField);
+        }
+
+        /// <summary>
+        /// Gets the ScalarField with the field name specified
+        /// </summary>
+        /// <param name="strName">Name of the field in the .VDB file</param>
+        /// <returns>ScalarField described by the VDB field</returns>
+        /// <exception cref="Exception">Throws exception if not found
+        /// </exception>
+        public ScalarField oGetScalarField(string strName)
+        {
+            for (int n=0; n<nFieldCount(); n++)
+            {
+                if (String.Compare(strFieldName(n), strName, true) == 0)
+                {
+                    return oGetScalarField(n);
+                }
+            }
+
+            throw new Exception($"No scalar field with name {strName} found");
+        }
+
+        /// <summary>
+        /// Adds a copy of the specified Scalar Field to the VdbFile object
+        /// </summary>
+        /// <param name="oField">Field to add</param>
+        /// <param name="strFieldName">Field name (if not specified,
+        /// autogenerates a unique one
+        /// </param>
+        /// <returns>Index of the field inside the VdbFile object</returns>
+        public int nAdd(ScalarField oField, string strFieldName = "")
+        {
+            if (strFieldName == "")
+            {
+                // Use a unique name if none specified
+                strFieldName = $"PicoGK.ScalarField.{nFieldCount()}";
+            }
+
+            return _nAddScalarField(m_hThis, strFieldName, oField.m_hThis);
+        }
+
+        /// <summary>
+        /// Get the VectorField at the index specified. 0 is the first field.
+        /// If the field at the specified position is incompatible with the
+        /// field type, an exception is thrown.
+        /// </summary>
+        /// <param name="nIndex">Index of the field</param>
+        /// <returns>VectorField described by the VDB field</returns>
+        /// <exception>Throws exception if no ScalarField found at index</exception>
+        public VectorField oGetVectorField(int nIndex)
+        {
+            if (nIndex >= nFieldCount())
+                throw new ArgumentOutOfRangeException();
+
+            IntPtr hField = _hGetVectorField(m_hThis, nIndex);
+            if (hField == IntPtr.Zero)
+                throw new Exception($"No vector field found at index {nIndex}");
+
+            return new VectorField(hField);
+        }
+
+        /// <summary>
+        /// Gets the VectorField with the field name specified
+        /// </summary>
+        /// <param name="strName">Name of the field in the .VDB file</param>
+        /// <returns>VectorField described by the VDB field</returns>
+        /// <exception cref="Exception">Throws exception if not found
+        /// </exception>
+        public VectorField oGetVectorField(string strName)
+        {
+            for (int n=0; n<nFieldCount(); n++)
+            {
+                if (String.Compare(strFieldName(n), strName, true) == 0)
+                {
+                    return oGetVectorField(n);
+                }
+            }
+
+            throw new Exception($"No vector field with name {strName} found");
+        }
+
+        /// <summary>
+        /// Adds a copy of the specified VectorField to the VdbFile object
+        /// </summary>
+        /// <param name="oField">Field to add</param>
+        /// <param name="strFieldName">Field name (if not specified,
+        /// autogenerates a unique one
+        /// </param>
+        /// <returns>Index of the field inside the VdbFile object</returns>
+        public int nAdd(VectorField oField, string strFieldName = "")
+        {
+            if (strFieldName == "")
+            {
+                // Use a unique name if none specified
+                strFieldName = $"PicoGK.VectorField.{nFieldCount()}";
+            }
+
+            return _nAddVectorField(m_hThis, strFieldName, oField.m_hThis);
+        }
+
+        /// <summary>
         /// Number of fields stored in the VdbFile container
         /// </summary>
         /// <returns>The number of fields in the VdbFile</returns>
@@ -256,11 +376,69 @@ namespace PicoGK
                 case 0:
                     return "Voxels";
 
+                 case 1:
+                    return "ScalarField";
+
+                 case 2:
+                    return "VectorField";
+
                 default:
                     // Incompatible value returned from runtime
                     Debug.Assert(false);
                     return $"Unknown #{_nFieldType(m_hThis, nIndex)}";
             }
+        }
+
+        public IFieldWithMetadata xField(int nIndex)
+        {
+            if (nIndex >= nFieldCount())
+                throw new ArgumentOutOfRangeException();
+
+            switch (eFieldType(nIndex))
+            {
+                case EFieldType.Voxels:
+                    return voxGet(nIndex);
+
+                case EFieldType.ScalarField:
+                    return oGetScalarField(nIndex);
+
+                case EFieldType.VectorField:
+                    return oGetVectorField(nIndex);
+            }
+
+            throw new Exception($"Unsupported field at index {nIndex})");
+        }
+
+        public bool bIsPicoGKCompatible()
+        {
+            if (nFieldCount() < 1)
+                return false; // nothing inside
+
+            IFieldWithMetadata x = xField(0);
+
+            if (x.oMetaData().bGetValueAt("PicoGK.VoxelSize", out float fSize))
+            {
+                if (fSize > 0f)
+                    return true;
+            }
+
+            return false;
+        }
+
+        public float fPicoGKVoxelSizeMM()
+        {
+            if (nFieldCount() < 1)
+                return 0f; // nothing inside
+
+            IFieldWithMetadata x = xField(0);
+
+            if (x.oMetaData().bGetValueAt("PicoGK.VoxelSize", out float fSize))
+            {
+                if (fSize > 0f)
+                    return fSize * 1000f; // Meters to mm
+            }
+
+            return 0f;
         }
     }
 }

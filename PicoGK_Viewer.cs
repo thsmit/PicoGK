@@ -6,7 +6,7 @@
 //
 // For more information, please visit https://picogk.org
 // 
-// PicoGK is developed and maintained by LEAP 71 - © 2023 by LEAP 71
+// PicoGK is developed and maintained by LEAP 71 - © 2023-2024 by LEAP 71
 // https://leap71.com
 //
 // Computational Engineering will profoundly change our physical world in the
@@ -42,8 +42,11 @@ namespace PicoGK
     public partial class Viewer
     {
         public Viewer(  string strTitle,
-                        Vector2 vecSize)
+                        Vector2 vecSize,
+                        LogFile oLog)
         {
+            m_oLog = oLog;
+
             m_iMainThreadID = Environment.CurrentManagedThreadId;
 
             m_oHandler.AddAction(new KeyAction(
@@ -185,7 +188,8 @@ namespace PicoGK
 
                 lock (m_oActions)
                 {
-                    m_oActions.Enqueue(new LoadLightSetupAction(    abyDiffuseData,
+                    m_oActions.Enqueue(new LoadLightSetupAction(    m_oLog,
+                                                                    abyDiffuseData,
                                                                     abySpecularData));
                 }
             }
@@ -194,31 +198,18 @@ namespace PicoGK
         public void Add(    in Voxels vox,
                             int nGroupID = 0)
         {
-            Mesh msh = new Mesh(vox);
-
-            lock (m_oVoxels)
+            lock (m_oActions)
             {
-                m_oVoxels.Add(vox, msh);
+                m_oActions.Enqueue(new AddVoxelsAction(vox, nGroupID));
             }
-
-            Add(msh, nGroupID);
         }
 
         public void Remove(Voxels vox)
         {
-            Mesh? msh;
-
-            lock (m_oVoxels)
+            lock (m_oActions)
             {
-                if (!m_oVoxels.TryGetValue(vox, out msh))
-                {
-                    throw new Exception("Tried to remove voxels that were never added");
-                }
-
-                m_oVoxels.Remove(vox);
+                m_oActions.Enqueue(new RemoveVoxelsAction(vox));
             }
-
-            Remove(msh);
         }
 
         public void Add(    Mesh msh,
@@ -354,31 +345,10 @@ namespace PicoGK
 
         public void LogStatistics()
         {
-            float fTriangles = 0;
-            float fVertices = 0;
-            ulong nMeshes = 0;
-
-            lock (m_oMeshes)
+            lock (m_oActions)
             {
-                foreach (Mesh msh in m_oMeshes)
-                {
-                    fTriangles += (float)msh.nTriangleCount();
-                    fVertices += (float)msh.nVertexCount();
-                    nMeshes++;
-                }
+                m_oActions.Enqueue(new LogStatisticsAction(m_oLog));
             }
-
-            fTriangles /= 1000000.0f;
-            fVertices /= 1000000.0f;
-
-            Library.Log($"Viewer Stats:");
-            Library.Log($"   Number of Meshes: {nMeshes}");
-            lock (m_oVoxels)
-            {
-                Library.Log($"   Voxel Objects:    {m_oVoxels.Count()}");
-            }
-            Library.Log($"   Total Triangles:  {fTriangles:F1} mio");
-            Library.Log($"   Total Vertices:   {fVertices:F1} mio");
         }
 
         public float m_fElevation   = 30.0f;
@@ -418,6 +388,20 @@ namespace PicoGK
                     m_oBBox.Include(poly.oBoundingBox());
                 }
             }
+        }
+
+        void DoAdd(Mesh msh, int nGroupID)
+        {
+            m_oBBox.Include(msh.oBoundingBox());
+
+            lock (m_oMeshes)
+            {
+                m_oMeshes.Add(msh);
+            }
+
+            _AddMesh(   m_hThis,
+                        nGroupID,
+                        msh.m_hThis);
         }
 
         void DoRemove(Mesh msh)
@@ -470,12 +454,14 @@ namespace PicoGK
         Vector2 m_vecPrevPos                = new();
         bool m_bOrbit                       = false;
 
+        LogFile m_oLog;
+
         ///////// Internals
 
         void InfoCB(    string strMessage,
                         bool bFatalError)
         {
-            Library.Log(strMessage);
+            m_oLog.Log(strMessage);
         }
 
         void UpdateCB(  IntPtr hViewer,
@@ -541,7 +527,7 @@ namespace PicoGK
 
             catch (Exception e)
             {
-                Library.Log($"Caught exception in Viewer update callback:\n{e.ToString()}\n");
+                m_oLog.Log($"Caught exception in Viewer update callback:\n{e.ToString()}\n");
             }
         }
 

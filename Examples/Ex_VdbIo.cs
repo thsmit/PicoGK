@@ -1,4 +1,23 @@
-﻿using PicoGK;
+﻿//
+// SPDX-License-Identifier: CC0-1.0
+//
+// This example code file is released to the public under Creative Commons CC0.
+// See https://creativecommons.org/publicdomain/zero/1.0/legalcode
+//
+// To the extent possible under law, LEAP 71 has waived all copyright and
+// related or neighboring rights to this PicoGK example code file.
+//
+// THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS
+// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+// THE SOFTWARE.
+//
+
+using PicoGK;
+using System.Numerics;
 
 namespace PicoGKExamples
 {
@@ -58,8 +77,14 @@ namespace PicoGKExamples
             oFileCreated.nAdd(vox);
 
             // Note, internally copies are made of the voxel fields, so
-            // after you add a voxel field, any changes made to it are not
-            // reflected when you save it
+            // after you add a voxel field, any changes made to it after adding
+            // are not reflected in the saved file
+
+            VectorField oVectorField = new(vox);
+            oFileCreated.nAdd(oVectorField, "Vector");
+
+            ScalarField oScalarField = new(vox);
+            oFileCreated.nAdd(oScalarField, "Scalar");
 
             // Filename to use
             string strVdbFileName = Path.Combine(   Library.strLogFolder,
@@ -87,6 +112,12 @@ namespace PicoGKExamples
                 Library.Log($"-  Field {nField} has type {oFileLoad.strFieldType(nField)} and name '{oFileLoad.strFieldName(nField)}'");
             }
 
+            VectorField oReadVectorField = oFileLoad.oGetVectorField("Vector");
+            Library.Log($"VectorField metadata after reading {oReadVectorField.m_oMetadata}");
+
+            ScalarField oReadScalarField = oFileLoad.oGetScalarField("Scalar");
+            Library.Log($"ScalarField metadata after reading {oReadScalarField.m_oMetadata}");
+
             // Extract field number with the name Teapot (case insensitive)
             // .vdb files support several fields of various types, which
             // are unsupported in PicoGK.
@@ -111,12 +142,72 @@ namespace PicoGKExamples
             // If no compatible field is found, an exception is thrown
             Voxels voxReadSimple = Voxels.voxFromVdbFile(strVdbFileName);
 
-            // Now lets save the Voxels to a new file
-            voxReadSimple.SaveToVdbFile(Path.Combine(   Library.strLogFolder,
-                                                        "Simple.vdb"));
+            // Let's deal with field meta data
 
-            // This file now contains exactly one field,
-            // and uses an auto-generated field name
+            voxReadSimple.m_oMetadata.SetValue("StringValue", "Hello PicoGK");
+
+            if (!voxReadSimple.m_oMetadata.bGetValueAt("StringValue", out string strValue))
+            {
+                Library.Log($"Did not find the metadata value previously saved");
+            }
+            else
+            {
+                Library.Log($"Found metadata value {strValue}");
+            }
+
+            voxReadSimple.m_oMetadata.SetValue("FloatValue", 12345.67f);
+
+            if (!voxReadSimple.m_oMetadata.bGetValueAt("FloatValue", out float fValue))
+            {
+                Library.Log($"Did not find the metadata value previously saved");
+            }
+            else
+            {
+                Library.Log($"Found metadata value {fValue}");
+            }
+
+            voxReadSimple.m_oMetadata.SetValue("VectorValue", new Vector3(1,2,3));
+
+            if (!voxReadSimple.m_oMetadata.bGetValueAt("VectorValue", out Vector3 vecValue))
+            {
+                Library.Log($"Did not find the metadata value previously saved");
+            }
+            else
+            {
+                Library.Log($"Found metadata value {vecValue}");
+            }
+
+            Library.Log($"Metadata state: {voxReadSimple.m_oMetadata}");
+
+            Library.Log($"Removing data item 'StringValue'");
+            voxReadSimple.m_oMetadata.RemoveValue("StringValue");
+
+            Library.Log($"After removal: {voxReadSimple.m_oMetadata}");
+
+            Library.Log($"Now lets save the Voxels to a new file");
+            string strSimple = Path.Combine(Library.strLogFolder, "Simple.vdb");
+            voxReadSimple.SaveToVdbFile(strSimple);
+
+            Library.Log($"This file now contains exactly one field,and uses an auto-generated field name");
+
+            Voxels voxReadAgain = Voxels.voxFromVdbFile(strSimple);
+            Library.Log($"After reading: {voxReadAgain.m_oMetadata}");
+
+            try
+            {
+                Library.Log($"Try setting a metadata item that is internal");
+                Library.Log($"this will result in an exception, because we guard against this");
+
+                voxReadSimple.m_oMetadata.SetValue("file_compression", "Hello");
+
+                Library.Log($"Error - you should not be able to set this metadata");
+            }
+
+            catch (Exception e)
+            {
+                 Library.Log($"Correctly caught exception, as you are not allowed to set this value");
+                 Library.Log($"{e.Message}");
+            }
         }
     }
 }

@@ -6,7 +6,7 @@
 //
 // For more information, please visit https://picogk.org
 // 
-// PicoGK is developed and maintained by LEAP 71 - © 2023 by LEAP 71
+// PicoGK is developed and maintained by LEAP 71 - © 2023-2024 by LEAP 71
 // https://leap71.com
 //
 // Computational Engineering will profoundly change our physical world in the
@@ -33,7 +33,6 @@
 // limitations under the License.   
 //
 
-using System;
 using System.Numerics;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -49,6 +48,9 @@ namespace PicoGK
         [DllImport(Config.strPicoGKLib, CallingConvention = CallingConvention.Cdecl, EntryPoint = "Library_Init", CharSet = CharSet.Ansi)]
         private static extern void _Init(float fVoxelSizeMM);
 
+        [DllImport(Config.strPicoGKLib, CallingConvention = CallingConvention.Cdecl, EntryPoint = "Library_Destroy", CharSet = CharSet.Ansi)]
+        private static extern void _Destroy();
+
         [DllImport(Config.strPicoGKLib, CallingConvention = CallingConvention.Cdecl, EntryPoint = "Library_GetName", CharSet = CharSet.Ansi)]
         private static extern void _GetName(StringBuilder psz);
 
@@ -57,6 +59,14 @@ namespace PicoGK
 
         [DllImport(Config.strPicoGKLib, CallingConvention = CallingConvention.Cdecl, EntryPoint = "Library_GetBuildInfo", CharSet = CharSet.Ansi)]
         private static extern void _GetBuildInfo(StringBuilder psz);
+
+        [DllImport(Config.strPicoGKLib, CallingConvention = CallingConvention.Cdecl, EntryPoint = "Library_VoxelsToMm")]
+        private static extern void _VoxelsToMm( in  Vector3 vecVoxelCoordinate,
+                                                ref Vector3 vecMmCoordinate);
+
+        [DllImport(Config.strPicoGKLib, CallingConvention = CallingConvention.Cdecl, EntryPoint = "Library_MmToVoxels")]
+        private static extern void _MmToVoxels( in  Vector3 vecMmCoordinate,
+                                                ref Vector3 vecVoxelCoordinate);
     }
 
     public partial class Mesh : IDisposable
@@ -215,6 +225,12 @@ namespace PicoGK
         internal IntPtr m_hThis     = IntPtr.Zero;
     }
 
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    delegate void CallbackScalarFieldTraverse(in Vector3 vec, float fValue);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    delegate void CallbackVectorFieldTraverse(in Vector3 vec, in Vector3 vecValue);
+
     public partial class Voxels : IDisposable
     {
         [DllImport(Config.strPicoGKLib, CallingConvention = CallingConvention.Cdecl, EntryPoint = "Voxels_hCreate")]
@@ -259,6 +275,18 @@ namespace PicoGK
         private static extern void _TripleOffset(   IntPtr hThis,
                                                     float fOffset);
 
+        [DllImport(Config.strPicoGKLib, CallingConvention = CallingConvention.Cdecl, EntryPoint = "Voxels_Gaussian")]
+        private static extern void _Gaussian( IntPtr hThis,
+                                            float fDistance);
+
+        [DllImport(Config.strPicoGKLib, CallingConvention = CallingConvention.Cdecl, EntryPoint = "Voxels_Median")]
+        private static extern void _Median( IntPtr hThis,
+                                            float fDistance);
+
+        [DllImport(Config.strPicoGKLib, CallingConvention = CallingConvention.Cdecl, EntryPoint = "Voxels_Mean")]
+        private static extern void _Mean( IntPtr hThis,
+                                          float fDistance);
+
         [DllImport(Config.strPicoGKLib, CallingConvention = CallingConvention.Cdecl, EntryPoint = "Voxels_RenderMesh")]
         private static extern void _RenderMesh( IntPtr hThis,
                                                 IntPtr hMesh);
@@ -295,7 +323,7 @@ namespace PicoGK
 
         [DllImport(Config.strPicoGKLib, CallingConvention = CallingConvention.Cdecl, EntryPoint = "Voxels_CalculateProperties")]
         private extern static void _CalculateProperties(    IntPtr hThis,
-                                                            out float pfVolume,
+                                                            ref float pfVolume,
                                                             ref BBox3 oBBox);
 
         [DllImport(Config.strPicoGKLib, CallingConvention = CallingConvention.Cdecl, EntryPoint = "Voxels_GetSurfaceNormal")]
@@ -316,14 +344,24 @@ namespace PicoGK
 
         [DllImport(Config.strPicoGKLib, CallingConvention = CallingConvention.Cdecl, EntryPoint = "Voxels_GetVoxelDimensions")]
         private extern static void _GetVoxelDimensions( IntPtr hThis,
-                                                        out int nXSize,
-                                                        out int nYSize,
-                                                        out int nZSize);
+                                                        ref int nXOrigin,
+                                                        ref int nYOrigin,
+                                                        ref int nZOrigin,
+                                                        ref int nXSize,
+                                                        ref int nYSize,
+                                                        ref int nZSize);
 
         [DllImport(Config.strPicoGKLib, CallingConvention = CallingConvention.Cdecl, EntryPoint = "Voxels_GetSlice")]
         private extern static void _GetVoxelSlice(  IntPtr hThis,
                                                     int nZSlice,
-                                                    IntPtr afBuffer);
+                                                    IntPtr afBuffer,
+                                                    ref float fBackgroundValue);
+
+        [DllImport(Config.strPicoGKLib, CallingConvention = CallingConvention.Cdecl, EntryPoint = "Voxels_GetInterpolatedSlice")]
+        private extern static void _GetInterpolatedVoxelSlice(  IntPtr hThis,
+                                                                float fZSlice,
+                                                                IntPtr afBuffer,
+                                                                ref float fBackgroundValue);
 
         // Dispose Pattern
 
@@ -635,6 +673,26 @@ namespace PicoGK
                                                 string strFieldName,
                                                 IntPtr hVoxels);
 
+        [DllImport(Config.strPicoGKLib, CallingConvention = CallingConvention.Cdecl, EntryPoint = "VdbFile_hGetScalarField")]
+        private static extern IntPtr _hGetScalarField(  IntPtr hThis,
+                                                        int nIndex);
+
+
+        [DllImport(Config.strPicoGKLib, CallingConvention = CallingConvention.Cdecl, EntryPoint = "VdbFile_nAddScalarField", CharSet = CharSet.Ansi)]
+        private static extern int _nAddScalarField( IntPtr hThis,
+                                                    string strFieldName,
+                                                    IntPtr hField);
+
+        [DllImport(Config.strPicoGKLib, CallingConvention = CallingConvention.Cdecl, EntryPoint = "VdbFile_hGetVectorField")]
+        private static extern IntPtr _hGetVectorField(  IntPtr hThis,
+                                                        int nIndex);
+
+
+        [DllImport(Config.strPicoGKLib, CallingConvention = CallingConvention.Cdecl, EntryPoint = "VdbFile_nAddVectorField", CharSet = CharSet.Ansi)]
+        private static extern int _nAddVectorField( IntPtr hThis,
+                                                    string strFieldName,
+                                                    IntPtr hField);
+
         [DllImport(Config.strPicoGKLib, CallingConvention = CallingConvention.Cdecl, EntryPoint = "VdbFile_nFieldCount")]
         private static extern int _nFieldCount(IntPtr hThis);
 
@@ -650,6 +708,268 @@ namespace PicoGK
         // Dispose Pattern
 
         ~OpenVdbFile()
+        {
+            Dispose(false);
+        }
+
+        public void Dispose()
+        {
+            // Dispose of unmanaged resources.
+            Dispose(true);
+            // Suppress finalization.
+            GC.SuppressFinalize(this);
+        }
+
+        protected virtual void Dispose(bool bDisposing)
+        {
+            if (m_bDisposed)
+            {
+                return;
+            }
+
+            if (bDisposing)
+            {
+                // dispose managed state (managed objects).
+                // Nothing to do in this class
+            }
+
+            if (m_hThis != IntPtr.Zero)
+            {
+                _Destroy(m_hThis);
+                m_hThis = IntPtr.Zero;
+            }
+
+            m_bDisposed = true;
+        }
+
+        bool m_bDisposed = false;
+        internal IntPtr m_hThis = IntPtr.Zero;
+    }
+
+    public partial class ScalarField : IDisposable
+    {
+        [DllImport(Config.strPicoGKLib, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ScalarField_hCreate")]
+        public static extern IntPtr _hCreate();
+
+        [DllImport(Config.strPicoGKLib, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ScalarField_hCreateCopy")]
+        public static extern IntPtr _hCreateCopy(IntPtr hSource);
+
+        [DllImport(Config.strPicoGKLib, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ScalarField_hCreateFromVoxels")]
+        public static extern IntPtr _hCreateFromVoxels(IntPtr hVoxels);
+
+        [DllImport(Config.strPicoGKLib, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ScalarField_hBuildFromVoxels")]
+        public static extern IntPtr _hBuildFromVoxels(IntPtr hVoxels, float fScalarValue, float fSdThreshold);
+
+        [DllImport(Config.strPicoGKLib, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ScalarField_bIsValid")]
+        private static extern bool _bIsValid(IntPtr hThis);
+
+        [DllImport(Config.strPicoGKLib, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ScalarField_Destroy")]
+        private static extern void _Destroy(IntPtr hThis);
+
+        [DllImport(Config.strPicoGKLib, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ScalarField_SetValue")]
+        private static extern void _SetValue(   IntPtr hThis,
+                                                in Vector3 vecPosition,
+                                                float fValue);
+
+        [DllImport(Config.strPicoGKLib, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ScalarField_bGetValue")]
+        private static extern bool _bGetValue(   IntPtr hThis,
+                                                 in  Vector3 vecPosition,
+                                                 ref float fValue);
+
+        [DllImport(Config.strPicoGKLib, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ScalarField_RemoveValue")]
+        private static extern bool _RemoveValue(    IntPtr hThis,
+                                                    in  Vector3 vecPosition);
+
+        [DllImport(Config.strPicoGKLib, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ScalarField_GetVoxelDimensions")]
+        private extern static void _GetVoxelDimensions( IntPtr hThis,
+                                                        ref int nXOrigin,
+                                                        ref int nYOrigin,
+                                                        ref int nZOrigin,
+                                                        ref int nXSize,
+                                                        ref int nYSize,
+                                                        ref int nZSize);
+
+        [DllImport(Config.strPicoGKLib, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ScalarField_GetSlice")]
+        private extern static void _GetVoxelSlice(  IntPtr hThis,
+                                                    int nZSlice,
+                                                    IntPtr afBuffer);
+
+        [DllImport(Config.strPicoGKLib, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ScalarField_TraverseActive")]
+        private extern static void _TraverseActive( IntPtr hThis,
+                                                    CallbackScalarFieldTraverse pfn);
+
+
+        // Dispose Pattern
+
+        ~ScalarField()
+        {
+            Dispose(false);
+        }
+
+        public void Dispose()
+        {
+            // Dispose of unmanaged resources.
+            Dispose(true);
+            // Suppress finalization.
+            GC.SuppressFinalize(this);
+        }
+
+        protected virtual void Dispose(bool bDisposing)
+        {
+            if (m_bDisposed)
+            {
+                return;
+            }
+
+            if (bDisposing)
+            {
+                // dispose managed state (managed objects).
+                // Nothing to do in this class
+            }
+
+            if (m_hThis != IntPtr.Zero)
+            {
+                _Destroy(m_hThis);
+                m_hThis = IntPtr.Zero;
+            }
+
+            m_bDisposed = true;
+        }
+
+        bool m_bDisposed = false;
+        internal IntPtr m_hThis = IntPtr.Zero;
+    }
+
+    public partial class VectorField : IDisposable
+    {
+        [DllImport(Config.strPicoGKLib, CallingConvention = CallingConvention.Cdecl, EntryPoint = "VectorField_hCreate")]
+        public static extern IntPtr _hCreate();
+
+        [DllImport(Config.strPicoGKLib, CallingConvention = CallingConvention.Cdecl, EntryPoint = "VectorField_hCreateCopy")]
+        public static extern IntPtr _hCreateCopy(IntPtr hSource);
+
+        [DllImport(Config.strPicoGKLib, CallingConvention = CallingConvention.Cdecl, EntryPoint = "VectorField_hCreateFromVoxels")]
+        public static extern IntPtr _hCreateFromVoxels(IntPtr hVoxels);
+
+        [DllImport(Config.strPicoGKLib, CallingConvention = CallingConvention.Cdecl, EntryPoint = "VectorField_hBuildFromVoxels")]
+        public static extern IntPtr _hBuildFromVoxels(IntPtr hVoxels, in Vector3 vecValue, float fSDThreshold);
+
+        [DllImport(Config.strPicoGKLib, CallingConvention = CallingConvention.Cdecl, EntryPoint = "VectorField_bIsValid")]
+        private static extern bool _bIsValid(IntPtr hThis);
+
+        [DllImport(Config.strPicoGKLib, CallingConvention = CallingConvention.Cdecl, EntryPoint = "VectorField_Destroy")]
+        private static extern void _Destroy(IntPtr hThis);
+
+        [DllImport(Config.strPicoGKLib, CallingConvention = CallingConvention.Cdecl, EntryPoint = "VectorField_SetValue")]
+        private static extern void _SetValue(   IntPtr hThis,
+                                                in Vector3 vecPosition,
+                                                in Vector3 vecValue);
+
+        [DllImport(Config.strPicoGKLib, CallingConvention = CallingConvention.Cdecl, EntryPoint = "VectorField_bGetValue")]
+        private static extern bool _bGetValue(   IntPtr hThis,
+                                                 in  Vector3 vecPosition,
+                                                 ref Vector3 vecValue);
+
+        [DllImport(Config.strPicoGKLib, CallingConvention = CallingConvention.Cdecl, EntryPoint = "VectorField_RemoveValue")]
+        private static extern bool _RemoveValue(    IntPtr hThis,
+                                                    in  Vector3 vecPosition);
+
+        [DllImport(Config.strPicoGKLib, CallingConvention = CallingConvention.Cdecl, EntryPoint = "VectorField_TraverseActive")]
+        private extern static void _TraverseActive( IntPtr hThis,
+                                                    CallbackVectorFieldTraverse pfn);
+
+        // Dispose Pattern
+
+        ~VectorField()
+        {
+            Dispose(false);
+        }
+
+        public void Dispose()
+        {
+            // Dispose of unmanaged resources.
+            Dispose(true);
+            // Suppress finalization.
+            GC.SuppressFinalize(this);
+        }
+
+        protected virtual void Dispose(bool bDisposing)
+        {
+            if (m_bDisposed)
+            {
+                return;
+            }
+
+            if (bDisposing)
+            {
+                // dispose managed state (managed objects).
+                // Nothing to do in this class
+            }
+
+            if (m_hThis != IntPtr.Zero)
+            {
+                _Destroy(m_hThis);
+                m_hThis = IntPtr.Zero;
+            }
+
+            m_bDisposed = true;
+        }
+
+        bool m_bDisposed = false;
+        internal IntPtr m_hThis = IntPtr.Zero;
+    }
+
+    public partial class FieldMetadata
+    {
+        [DllImport(Config.strPicoGKLib, CallingConvention = CallingConvention.Cdecl, EntryPoint = "Metadata_hFromVoxels")]
+        internal static extern IntPtr _hFromVoxels(IntPtr hVoxels);
+
+        [DllImport(Config.strPicoGKLib, CallingConvention = CallingConvention.Cdecl, EntryPoint = "Metadata_hFromScalarField")]
+        internal static extern IntPtr _hFromScalarField(IntPtr hScalarField);
+
+        [DllImport(Config.strPicoGKLib, CallingConvention = CallingConvention.Cdecl, EntryPoint = "Metadata_hFromVectorField")]
+        internal static extern IntPtr _hFromVectorField(IntPtr hVectorField);
+
+        [DllImport(Config.strPicoGKLib, CallingConvention = CallingConvention.Cdecl, EntryPoint = "Metadata_Destroy")]
+        private static extern void _Destroy(IntPtr hThis);
+
+        [DllImport(Config.strPicoGKLib, CallingConvention = CallingConvention.Cdecl, EntryPoint = "Metadata_nCount")]
+        private static extern int _nCount(IntPtr hThis);
+
+        [DllImport(Config.strPicoGKLib, CallingConvention = CallingConvention.Cdecl, EntryPoint = "Metadata_nNameLengthAt")]
+        private static extern int _nNameLengthAt(IntPtr hThis, int nIndex);
+
+        [DllImport(Config.strPicoGKLib, CallingConvention = CallingConvention.Cdecl, EntryPoint = "Metadata_bGetNameAt", CharSet = CharSet.Ansi)]
+        private static extern bool _bGetNameAt( IntPtr hThis, int nIndex, StringBuilder pszValueName, int nMaxStringLen);
+
+        [DllImport(Config.strPicoGKLib, CallingConvention = CallingConvention.Cdecl, EntryPoint = "Metadata_nTypeAt", CharSet = CharSet.Ansi)]
+        private static extern int _nTypeAt(IntPtr hThis, string strName);
+
+        [DllImport(Config.strPicoGKLib, CallingConvention = CallingConvention.Cdecl, EntryPoint = "Metadata_nStringLengthAt", CharSet = CharSet.Ansi)]
+        private static extern int _nStringLengthAt( IntPtr hThis, string strFieldName);
+
+        [DllImport(Config.strPicoGKLib, CallingConvention = CallingConvention.Cdecl, EntryPoint = "Metadata_bGetStringAt", CharSet = CharSet.Ansi)]
+        private static extern bool _bGetStringAt(IntPtr hThis, string strFieldName, StringBuilder pszValue, int nMaxStringLen);
+
+        [DllImport(Config.strPicoGKLib, CallingConvention = CallingConvention.Cdecl, EntryPoint = "Metadata_bGetFloatAt", CharSet = CharSet.Ansi)]
+        private static extern bool _bGetFloatAt(IntPtr hThis, string strFieldName, ref float fValue);
+
+        [DllImport(Config.strPicoGKLib, CallingConvention = CallingConvention.Cdecl, EntryPoint = "Metadata_bGetVectorAt", CharSet = CharSet.Ansi)]
+        private static extern bool _bGetVectorAt(IntPtr hThis, string strFieldName, ref Vector3 vecValue);
+
+        [DllImport(Config.strPicoGKLib, CallingConvention = CallingConvention.Cdecl, EntryPoint = "Metadata_SetStringValue", CharSet = CharSet.Ansi)]
+        private static extern void _SetStringValue(IntPtr hThis, string strFieldName, string strValue);
+
+        [DllImport(Config.strPicoGKLib, CallingConvention = CallingConvention.Cdecl, EntryPoint = "Metadata_SetFloatValue", CharSet = CharSet.Ansi)]
+        private static extern void _SetFloatValue(IntPtr hThis, string strFieldName, float fValue);
+
+        [DllImport(Config.strPicoGKLib, CallingConvention = CallingConvention.Cdecl, EntryPoint = "Metadata_SetVectorValue", CharSet = CharSet.Ansi)]
+        private static extern void _SetVectorValue(IntPtr hThis, string strFieldName, in Vector3 vecValue);
+
+        [DllImport(Config.strPicoGKLib, CallingConvention = CallingConvention.Cdecl, EntryPoint = "MetaData_RemoveValue", CharSet = CharSet.Ansi)]
+        private static extern void _RemoveValue(IntPtr hThis, string strFieldName);
+
+         ~FieldMetadata()
         {
             Dispose(false);
         }

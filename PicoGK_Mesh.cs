@@ -6,7 +6,7 @@
 //
 // For more information, please visit https://picogk.org
 // 
-// PicoGK is developed and maintained by LEAP 71 - © 2023 by LEAP 71
+// PicoGK is developed and maintained by LEAP 71 - © 2023-2024 by LEAP 71
 // https://leap71.com
 //
 // Computational Engineering will profoundly change our physical world in the
@@ -89,6 +89,55 @@ namespace PicoGK
 
             return mshTrans;
         }
+
+        /// <summary>
+        /// Create a transformed mesh by applying a transformation matrix
+        /// </summary>
+        /// <param name="matTrans">Transformation Matrix to apply</param>
+        /// <returns>A new mesh that has the transformation applied</returns>
+        public Mesh mshCreateTransformed(Matrix4x4 matTrans)
+        {
+            Mesh mshTrans = new Mesh();
+            for (int n = 0; n < nTriangleCount(); n++)
+            {
+                GetTriangle(    n,
+                                out Vector3 A,
+                                out Vector3 B,
+                                out Vector3 C);
+
+               mshTrans.nAddTriangle(   A.vecTransformed(matTrans),
+                                        B.vecTransformed(matTrans),
+                                        C.vecTransformed(matTrans));
+            }
+
+            return mshTrans;
+        }
+
+        //// <summary>
+        /// Mirrors a mesh at the specified plane.
+        /// </summary>
+        /// <param name="msh">The mesh to mirror.</param>
+        /// <param name="vecPlanePoint">A point through which the mirror plane passes.</param>
+        /// <param name="vecPlaneNormal">The normal vector of the mirror plane.</param>
+        /// <returns>The mirrored mesh.</returns>
+        public Mesh mshCreateMirrored(  Vector3 vecPlanePoint,
+									    Vector3 vecPlaneNormal)
+		{
+			Mesh mshResult = new();
+
+            vecPlaneNormal = vecPlaneNormal.vecNormalized();
+
+			for (int n=0; n<nTriangleCount();n++)
+			{
+				GetTriangle(n, out Vector3 vecA, out Vector3 vecB, out Vector3 vecC);
+
+				mshResult.nAddTriangle(	vecA.vecMirrored(vecPlanePoint, vecPlaneNormal),
+										vecB.vecMirrored(vecPlanePoint, vecPlaneNormal),
+										vecC.vecMirrored(vecPlanePoint, vecPlaneNormal));
+			}
+
+			return mshResult;
+		}
 
         /// <summary>
         /// Add a new vertex to the mesh so that it can be used in mesh triangles

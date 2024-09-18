@@ -6,7 +6,7 @@
 //
 // For more information, please visit https://picogk.org
 // 
-// PicoGK is developed and maintained by LEAP 71 - © 2023 by LEAP 71
+// PicoGK is developed and maintained by LEAP 71 - © 2023-2024 by LEAP 71
 // https://leap71.com
 //
 // Computational Engineering will profoundly change our physical world in the
@@ -40,7 +40,7 @@ using System.Text;
 
 namespace PicoGK
 {
-    public partial class Library
+    public partial class Library : IDisposable
     {
         /// <summary>
         /// Returns the library name (from the C++ side)
@@ -116,6 +116,14 @@ namespace PicoGK
                                 string strSrcFolder     = "",
                                 string strLightsFile    = "")
         {
+            lock(mtxRunOnce)
+            {
+                if (bRunning)
+                    throw new Exception("PicoGK only supports running one library config at one time");
+
+                bRunning = true;
+            }
+
             Debug.Assert(_fVoxelSizeMM > 0.0f);
             fVoxelSizeMM = _fVoxelSizeMM;
 
@@ -172,52 +180,32 @@ namespace PicoGK
                     throw new Exception("Failed to load PicoGK Library");
                 }
 
+                string strSearched = "";
+
                 if (strLightsFile == "")
+                    strLightsFile = strFindLightSetupFile(  strSrcFolder, 
+                                                            out strSearched);
+
+                if (!File.Exists(strLightsFile))
                 {
-                    string strSearched = "";
+                    strSearched += strLightsFile + "\n";
 
-                    strLightsFile = Path.Combine(Utils.strPicoGKSourceCodeFolder(), "ViewerEnvironment/PicoGKDefaultEnv.zip");
-
-                    if (!File.Exists(strLightsFile))
-                    {
-                        strSearched += strLightsFile + "\n";
-
-                        if (strSrcFolder == "")
-                        {
-                            strLightsFile = Path.Combine(Utils.strDocumentsFolder(), "PicoGKDefaultEnv.zip");
-                        }
-                        else
-                        {
-                            strLightsFile = Path.Combine(strSrcFolder, "PicoGKDefaultEnv.zip");
-                        }
-
-                        if (!File.Exists(strLightsFile))
-                        {
-                            strSearched += strLightsFile + "\n";
-
-                            strLightsFile = Path.Combine(Utils.strExecutableFolder(), "ViewerEnvironment.zip");
-
-                            if (!File.Exists(strLightsFile))
-                            {
-                                strSearched += strLightsFile + "\n";
-
-                                Log($"Could not find a lights file - your viewer will look quite dark.");
-                                Log($"Searched in:");
-                                Log($"{strSearched}");
-                                Log("You can fix this by placing the file PicoGKLights.zip into one of these folders");
-                                Log("or providing the file as a parameter at Library.Go()");
-                            }
-                        }
-                    }
+                    Log($"Could not find a lights file - your viewer will look quite dark.");
+                    Log($"Searched in:");
+                    Log($"{strSearched}");
+                    Log("You can fix this by placing the file PicoGKLights.zip into one of these folders");
+                    Log("or providing the file as a parameter at Library.Go()");
                 }
-
+            
                 Log("Creating Viewer");
 
                 Viewer? oViewer = null;
 
                 try
                 {
-                    oViewer = new Viewer("PicoGK", new Vector2(2048f, 1024f));
+                    oViewer = new Viewer(   "PicoGK", 
+                                            new Vector2(2048f, 1024f),
+                                            oLog);
                 }
 
                 catch (Exception e)
@@ -266,6 +254,12 @@ namespace PicoGK
                     m_bAppExit = true;
                     Log("Viewer Window Closed");
                 }
+            }
+
+            lock(mtxRunOnce)
+            {
+                Debug.Assert(bRunning);
+                bRunning = false;
             }
         }
 
@@ -336,6 +330,52 @@ namespace PicoGK
                     throw new Exception("Trying to access Viewer before Library::Go() was called");
 
                 return oTheViewer;
+            }
+        }
+
+        /// <summary>
+        /// This is an alternate way to run the library, instead of using "Go"
+        /// if you use this, you cannot invoke the viewer and the log file functions
+        /// You also cannot use this in a thread
+        /// 
+        /// Use this in headless mode
+        ///
+        /// Example:
+        /// using (PicoGK.Library oLibrary = new(0.1f))
+        /// {
+        ///     PicoGK.Voxels vox = new(PicoGK.Utils.mshCreateCube());
+        ///     vox.mshAsMesh().SaveToStlFile(Path.Combine(PicoGK.Utils.strDocumentsFolder(), "PicoGK.stl"));
+        /// }
+        /// 
+        /// </summary>
+        /// <param name="fVoxelSizeMM">Voxel size in mm</param>
+        /// <exception cref="Exception">Throws an exception if library cannot be initialized</exception>
+        /// 
+        public Library(float _fVoxelSizeMM)
+        {
+            lock(mtxRunOnce)
+            {
+                if (bRunning)
+                    throw new Exception("PicoGK only supports running one library config at one time");
+
+                bRunning = true;
+            }
+
+            TestAssumptions();
+
+            Debug.Assert(_fVoxelSizeMM > 0f);
+            fVoxelSizeMM = _fVoxelSizeMM;
+           
+            try
+            {
+                // Create a config using physical coordinates
+                _Init(fVoxelSizeMM);
+                // Done creating C++ Library
+            }
+
+            catch (Exception)
+            {
+                throw new Exception($"Failed to load PicoGK Runtime. Make sure the PicoGK Runtime is installed and {Config.strPicoGKLib}.dylib/.dll is accessible and has execution rights.\n");
             }
         }
 
@@ -420,6 +460,35 @@ namespace PicoGK
             return true;
         }
 
+        public static Vector3 vecVoxelsToMm(    int x,
+                                                int y,
+                                                int z)
+        {
+            Vector3 vecMm = new();
+            Vector3 vecVoxels   = new Vector3(  (float) x,
+                                                (float) y,
+                                                (float) z);
+            _VoxelsToMm(    in vecVoxels,
+                            ref vecMm);
+
+            return vecMm;
+        }
+
+         public static void MmToVoxels( Vector3 vecMm,
+                                        out int x,
+                                        out int y,
+                                        out int z)
+        {
+            Vector3 vecResult   = Vector3.Zero;
+
+            _VoxelsToMm(    in vecMm,
+                            ref vecResult);
+
+            x = (int) (vecResult.X + 0.5f);
+            y = (int) (vecResult.Y + 0.5f);
+            z = (int) (vecResult.Z + 0.5f);
+        }
+
         public static   float   fVoxelSizeMM = 0.0f;
         public static   string  strLogFolder = "";
         public static   string  strSrcFolder = "";
@@ -428,5 +497,83 @@ namespace PicoGK
         private static object   oMtxViewer  = new object();
         private static LogFile? oTheLog     = null;
         private static Viewer?  oTheViewer  = null;
+
+        private static object   mtxRunOnce  = new object();
+        private static bool     bRunning    = false;
+
+        ~Library()
+        {
+            Dispose(false);
+        }
+
+        public static string strFindLightSetupFile( string strInputFolder,
+                                                    out string strSearched)
+        {
+            strSearched = "";
+
+            string strLightsFile    = Path.Combine( Utils.strPicoGKSourceCodeFolder(), 
+                                                    "ViewerEnvironment/PicoGKDefaultEnv.zip");
+
+            if (File.Exists(strLightsFile))
+                return strLightsFile;
+
+            strSearched += strLightsFile + "\n";
+
+            if (strInputFolder == "")
+            {
+                strLightsFile = Path.Combine(   Utils.strDocumentsFolder(), 
+                                                "PicoGKDefaultEnv.zip");
+
+                strSearched += strLightsFile + "\n";
+            }
+            else
+            {
+                strLightsFile = Path.Combine(   strInputFolder, 
+                                                "PicoGKDefaultEnv.zip");
+
+                strSearched += strLightsFile + "\n";
+            }
+
+            if (!File.Exists(strLightsFile))
+            {
+                strLightsFile = Path.Combine(    Utils.strExecutableFolder(), 
+                                                "ViewerEnvironment.zip");
+
+                strSearched += strLightsFile + "\n";
+            }
+
+            return strLightsFile;
+        }
+
+        public void Dispose()
+        {
+            // Dispose of unmanaged resources.
+            Dispose(true);
+            // Suppress finalization.
+            GC.SuppressFinalize(this);
+        }
+
+        protected virtual void Dispose(bool bDisposing)
+        {
+            if (m_bDisposed)
+            {
+                return;
+            }
+
+            if (bDisposing)
+            {
+                _Destroy();
+            }
+
+            lock(mtxRunOnce)
+            {
+                Debug.Assert(bRunning);
+                bRunning = false;
+            }
+
+            m_bDisposed = true;
+        }
+
+        bool m_bDisposed = false;
     }
 }

@@ -6,7 +6,7 @@
 //
 // For more information, please visit https://picogk.org
 // 
-// PicoGK is developed and maintained by LEAP 71 - © 2023 by LEAP 71
+// PicoGK is developed and maintained by LEAP 71 - © 2023-2024 by LEAP 71
 // https://leap71.com
 //
 // Computational Engineering will profoundly change our physical world in the
@@ -271,6 +271,10 @@ namespace PicoGK
         /// <param name="vec">Vector to include</param>
         public void Include(Vector3 vec)
         {
+            Debug.Assert(!float.IsNaN(vec.X));
+            Debug.Assert(!float.IsNaN(vec.Y));
+            Debug.Assert(!float.IsNaN(vec.Z));
+
             vecMin.X = Math.Min(vecMin.X, vec.X);
             vecMin.Y = Math.Min(vecMin.Y, vec.Y);
             vecMin.Z = Math.Min(vecMin.Z, vec.Z);
@@ -299,6 +303,9 @@ namespace PicoGK
         /// <param name="fZ">At which Z coord</param>
         public void Include(BBox2 oBox, float fZ = 0.0f)
         {
+            if (oBox.bIsEmpty())
+                return;
+                
             Include(new Vector3(oBox.vecMin.X, oBox.vecMin.Y, fZ));
             Include(new Vector3(oBox.vecMax.X, oBox.vecMax.Y, fZ));
         }

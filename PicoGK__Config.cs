@@ -6,7 +6,7 @@
 //
 // For more information, please visit https://picogk.org
 // 
-// PicoGK is developed and maintained by LEAP 71 - © 2023 by LEAP 71
+// PicoGK is developed and maintained by LEAP 71 - © 2024 by LEAP 71
 // https://leap71.com
 //
 // Computational Engineering will profoundly change our physical world in the
@@ -39,7 +39,7 @@ namespace PicoGK
     {
         // PicoGK Runtime to load
 
-        public const string strPicoGKLib = "picogk.1.3"; // dll or dylib
+        public const string strPicoGKLib = "picogk.1.7"; // dll or dylib
 
         // if you want to load it from a specific location instead of
         // a standard system path, you can specify it as well
